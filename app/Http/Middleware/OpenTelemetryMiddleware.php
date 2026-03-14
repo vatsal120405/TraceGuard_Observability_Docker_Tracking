@@ -5,8 +5,9 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use OpenTelemetry\API\Trace\SpanKind;
-use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\API\Trace\StatusCode;
+use OpenTelemetry\API\Trace\TracerInterface;
+use Spatie\Prometheus\Facades\Prometheus;
 use Symfony\Component\HttpFoundation\Response;
 
 class OpenTelemetryMiddleware
@@ -21,11 +22,13 @@ class OpenTelemetryMiddleware
     /**
      * Handle an incoming request.
      *
-     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
+     * @param  Closure(Request): (Response)  $next
      */
     public function handle(Request $request, Closure $next): Response
     {
-        $span = $this->tracer->spanBuilder($request->method() . ' ' . $request->path())
+        $startTime = microtime(true);
+
+        $span = $this->tracer->spanBuilder($request->method().' '.$request->path())
             ->setSpanKind(SpanKind::KIND_SERVER)
             ->startSpan();
 
@@ -47,6 +50,9 @@ class OpenTelemetryMiddleware
                 $span->setStatus(StatusCode::STATUS_OK);
             }
 
+            // Record Prometheus metrics
+            $this->recordMetrics($request, $response, $startTime);
+
             return $response;
         } catch (\Throwable $e) {
             $span->recordException($e);
@@ -54,6 +60,26 @@ class OpenTelemetryMiddleware
             throw $e;
         } finally {
             $span->end();
+        }
+    }
+
+    private function recordMetrics(Request $request, Response $response, float $startTime): void
+    {
+        try {
+            $duration = microtime(true) - $startTime;
+            $statusCode = $response->getStatusCode();
+
+            // Record request counter
+            Prometheus::counter('laravel_prometheus_http_requests_total', 'Total HTTP requests')
+                ->labels($request->method(), (string) $statusCode)
+                ->inc();
+
+            // Record request duration histogram
+            Prometheus::histogram('laravel_prometheus_http_request_duration_seconds', 'HTTP request duration in seconds')
+                ->labels($request->method(), (string) $statusCode)
+                ->observe($duration);
+        } catch (\Throwable $e) {
+            // Fail silently to avoid breaking the request
         }
     }
 }

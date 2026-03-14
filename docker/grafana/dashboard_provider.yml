@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: 'TraceGuardDashboards'
+    orgId: 1
+    folder: 'TraceGuard'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

@@ -24,4 +24,17 @@ Route::get('/metrics', function () {
     return \Spatie\Prometheus\Facades\Prometheus::render();
 });
 
+Route::get('/metrics-test', function () {
+    return "Prometheus Test";
+});
+
+// Anomaly Injection Routes
+Route::prefix('anomaly')->group(function () {
+    Route::get('/delay', [\App\Http\Controllers\AnomalyController::class, 'delay']);
+    Route::get('/db-bottleneck', [\App\Http\Controllers\AnomalyController::class, 'dbBottleneck']);
+    Route::get('/error', [\App\Http\Controllers\AnomalyController::class, 'error']);
+    Route::get('/login-failure', [\App\Http\Controllers\AnomalyController::class, 'loginFailure']);
+    Route::get('/heavy-payload', [\App\Http\Controllers\AnomalyController::class, 'heavyPayload']);
+});
+
 require __DIR__.'/auth.php';
