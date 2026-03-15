@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\StatusCode;
 use OpenTelemetry\API\Trace\TracerInterface;
+use Illuminate\Support\Facades\Cache;
 use Spatie\Prometheus\Facades\Prometheus;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -69,15 +70,20 @@ class OpenTelemetryMiddleware
             $duration = microtime(true) - $startTime;
             $statusCode = $response->getStatusCode();
 
-            // Record request counter
-            Prometheus::counter('laravel_prometheus_http_requests_total', 'Total HTTP requests')
-                ->labels($request->method(), (string) $statusCode)
-                ->inc();
-
-            // Record request duration histogram
-            Prometheus::histogram('laravel_prometheus_http_request_duration_seconds', 'HTTP request duration in seconds')
-                ->labels($request->method(), (string) $statusCode)
-                ->observe($duration);
+            // Record request counter - Manually increment for pull-based Spatie v1 API
+            $method = $request->method();
+            $status = (string) $statusCode;
+            $key = "http_requests_total:{$method}|{$status}";
+            
+            $count = (int) Cache::get($key, 0);
+            Cache::put($key, $count + 1, now()->addDays(7));
+            
+            // Track key for collector review
+            $keys = Cache::get('prometheus_metric_keys', []);
+            if (!in_array($key, $keys)) {
+                $keys[] = $key;
+                Cache::put('prometheus_metric_keys', $keys);
+            }
         } catch (\Throwable $e) {
             // Fail silently to avoid breaking the request
         }

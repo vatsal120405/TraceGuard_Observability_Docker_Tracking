@@ -13,6 +13,7 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - OTEL_SERVICE_NAME=traceguard-app
+      - REDIS_HOST=redis
     depends_on:
       db:
         condition: service_healthy
@@ -31,6 +32,7 @@ services:
       - ./lang:/var/www/html/lang
       - ./storage:/var/www/html/storage
       - ./public:/var/www/html/public
+      - ./bootstrap:/var/www/html/bootstrap
       - ./.env:/var/www/html/.env
 
   db:
@@ -62,6 +64,22 @@ services:
       - traceguard_redis_data:/data
     networks:
       - traceguard_network
+
+  mysql-exporter:
+    image: prom/mysqld-exporter:v0.15.0
+    container_name: traceguard_mysql_exporter
+    restart: unless-stopped
+    volumes:
+      - ./docker/mysql-exporter/.my.cnf:/home/.my.cnf
+    command:
+      - '--config.my-cnf=/home/.my.cnf'
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - traceguard_network
+    ports:
+    - "9104:9104"
 
   prometheus:
     image: prom/prometheus:latest
@@ -98,13 +116,14 @@ services:
     volumes:
       - /var/log:/var/log
       - ./docker/promtail/promtail-config.yml:/etc/promtail/config.yml
+      - ./storage/logs:/var/www/html/storage/logs
       - /var/run/docker.sock:/var/run/docker.sock
     command: -config.file=/etc/promtail/config.yml
     networks:
       - traceguard_network
 
   tempo:
-    image: grafana/tempo:latest
+    image: grafana/tempo:2.7.0
     container_name: traceguard_tempo
     restart: unless-stopped
     command: [ "-config.file=/etc/tempo.yaml" ]

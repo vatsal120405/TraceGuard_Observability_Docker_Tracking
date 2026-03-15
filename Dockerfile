@@ -45,7 +45,7 @@ RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cac
     && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
 # Install composer dependencies
-RUN composer install --no-interaction --optimize-autoloader --no-dev
+RUN composer install --no-interaction --optimize-autoloader
 
 # Install NPM dependencies and build frontend assets
 RUN npm install \

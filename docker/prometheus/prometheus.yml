@@ -8,8 +8,13 @@ scrape_configs:
       - targets: ['localhost:9090']
 
   - job_name: 'laravel-app'
-    metrics_path: '/metrics'
+    metrics_path: '/prometheus'
     static_configs:
       - targets: ['app:80']
     scrape_interval: 10s
     scrape_timeout: 5s
+
+  - job_name: 'mysql'
+    static_configs:
+      - targets: ['mysql-exporter:9104']
+    scrape_interval: 10s

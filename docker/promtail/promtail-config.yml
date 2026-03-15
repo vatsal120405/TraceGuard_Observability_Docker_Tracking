@@ -14,12 +14,13 @@ scrape_configs:
     - targets:
         - localhost
       labels:
+        __path__: /var/log/*.log
         job: varlogs
-        __path__: /var/log/*log
 
   - job_name: laravel
     static_configs:
-      - targets: localhost
+      - targets: 
+        - localhost
         labels:
           job: laravel
           __path__: /var/www/html/storage/logs/*.log

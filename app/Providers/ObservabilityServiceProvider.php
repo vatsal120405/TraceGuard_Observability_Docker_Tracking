@@ -56,12 +56,19 @@ class ObservabilityServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        try {
             $tracer = $this->app->make(TracerInterface::class);
+            Log::debug("ObservabilityServiceProvider - Prometheus ID: " . spl_object_id(app(Spatie\Prometheus\Prometheus::class)));
+
+            // Register Prometheus DB Metric
+            $dbHistogram = Prometheus::addHistogram('laravel_prometheus_db_query_duration_seconds')
+                ->helpText('Duration of database queries in seconds')
+                ->labels(['query_type'])
+                ->buckets([0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10]);
 
             // Listen for Database Queries
-            DB::listen(function (QueryExecuted $query) use ($tracer) {
+            DB::listen(function (QueryExecuted $query) use ($tracer, $dbHistogram) {
                 try {
+                    // Start OTel Span
                     $span = $tracer->spanBuilder('db.query '.$query->connectionName)
                         ->setAttribute('db.system', 'mysql')
                         ->setAttribute('db.statement', $query->sql)
@@ -69,18 +76,49 @@ class ObservabilityServiceProvider extends ServiceProvider
                         ->startSpan();
 
                     $span->end();
+
+                    // Record Prometheus Metrics
+                    $queryType = strtoupper(strtok(trim($query->sql), ' '));
+                    $durationSeconds = $query->time / 1000; // time is in ms
+
+                    Log::debug("Recording DB Metric: {$queryType} - {$durationSeconds}s");
+                    $dbHistogram->observe($durationSeconds, [$queryType]);
+
                 } catch (\Throwable $e) {
                     // Fail silently for DB spans to avoid loop
                 }
             });
 
-            // Register HTTP Prometheus Metrics (initialized but values set by middleware)
-            Prometheus::counter('laravel_prometheus_http_requests_total', 'Total HTTP requests');
-            Prometheus::histogram('laravel_prometheus_http_request_duration_seconds', 'HTTP request duration in seconds');
+            // Register HTTP Prometheus Metrics - Pulled from cache for persistence
+            Prometheus::addCounter('laravel_prometheus_http_requests_total')
+                ->helpText('Total HTTP requests')
+                ->labels(['method', 'status'])
+                ->setInitialValue(function () {
+                    $metrics = [];
+                    $keys = Cache::get('prometheus_metric_keys', []);
+                    foreach ($keys as $key) {
+                        if (str_starts_with($key, 'http_requests_total:')) {
+                            $parts = explode(':', $key);
+                            $labels = explode('|', $parts[1]);
+                            $metrics[] = [(float) Cache::get($key, 0), $labels];
+                        }
+                    }
+                    // Ensure at least one entry exists to always render the help/type headers
+                    if (empty($metrics)) {
+                        $metrics[] = [0, ['GET', '200']];
+                    }
+                    return $metrics;
+                });
 
             // Register Custom Prometheus Metrics
-            Prometheus::gauge('Active_Users', 'Number of active users in the system')
+            Prometheus::addGauge('test_metric')
+                ->helpText('A test metric to verify Prometheus registration')
+                ->value(42);
+
+            Prometheus::addGauge('Active_Users')
+                ->helpText('Number of active users in the system')
                 ->value(function () {
+                    Log::debug("Collecting Active_Users metric...");
                     try {
                         return User::count();
                     } catch (\Throwable $e) {
@@ -88,7 +126,8 @@ class ObservabilityServiceProvider extends ServiceProvider
                     }
                 });
 
-            Prometheus::gauge('Login_Failures', 'Total cumulative login failures')
+            Prometheus::addGauge('Login_Failures')
+                ->helpText('Total cumulative login failures')
                 ->value(function () {
                     try {
                         return Cache::get('login_failures_total', 0);
